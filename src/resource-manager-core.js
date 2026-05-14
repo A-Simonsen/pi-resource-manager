@@ -136,6 +136,16 @@ export function describeResource(resource) {
   return parts.filter(Boolean).join(" · ");
 }
 
+export function calculateVisibleRange(totalItems, selectedIndex, maxVisibleItems) {
+  const total = Math.max(0, Number(totalItems) || 0);
+  if (total === 0) return { start: 0, end: 0 };
+
+  const visible = Math.max(1, Math.min(total, Math.floor(Number(maxVisibleItems) || 1)));
+  const selected = Math.max(0, Math.min(total - 1, Math.floor(Number(selectedIndex) || 0)));
+  const start = Math.max(0, Math.min(selected - visible + 1, total - visible));
+  return { start, end: start + visible };
+}
+
 async function discoverSkills(env, lock) {
   const skills = [];
   for (const root of env.skillRoots || []) {

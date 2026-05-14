@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import {
   buildPackageCommand,
+  calculateVisibleRange,
   describeResource,
   discoverResources,
   getDefaultEnv,
@@ -48,7 +49,7 @@ async function openResourceManager(pi: ExtensionAPI, ctx: ExtensionCommandContex
     const result = await ctx.ui.custom<ManagerResult | null>((tui, theme, _keybindings, done) => {
       const component = new ResourceManagerComponent(discovery, tab, theme, done);
       return {
-        render: (width: number) => component.render(width),
+        render: (width: number) => component.render(width, tui.terminal.rows),
         invalidate: () => component.invalidate(),
         handleInput: (data: string) => {
           component.handleInput(data);
@@ -67,7 +68,7 @@ async function openResourceManager(pi: ExtensionAPI, ctx: ExtensionCommandContex
 
 class ResourceManagerComponent {
   private selected = 0;
-  private cacheWidth?: number;
+  private cacheKey?: string;
   private cacheLines?: string[];
 
   constructor(
@@ -77,11 +78,16 @@ class ResourceManagerComponent {
     private done: (value: ManagerResult | null) => void,
   ) {}
 
-  render(width: number): string[] {
-    if (this.cacheLines && this.cacheWidth === width) return this.cacheLines;
+  render(width: number, terminalRows = 24): string[] {
+    const cacheKey = `${width}:${terminalRows}`;
+    if (this.cacheLines && this.cacheKey === cacheKey) return this.cacheLines;
 
     const items = this.items();
     if (this.selected >= items.length) this.selected = Math.max(0, items.length - 1);
+
+    const maxVisibleItems = this.maxVisibleItems(terminalRows);
+    const range = calculateVisibleRange(items.length, this.selected, maxVisibleItems);
+    const visibleItems = items.slice(range.start, range.end);
 
     const lines = [
       this.theme.fg("accent", this.theme.bold("Resource Manager")),
@@ -92,8 +98,9 @@ class ResourceManagerComponent {
     if (items.length === 0) {
       lines.push(this.theme.fg("muted", `No ${this.tab} found.`));
     } else {
-      for (let index = 0; index < items.length; index += 1) {
-        const item = items[index];
+      for (let offset = 0; offset < visibleItems.length; offset += 1) {
+        const index = range.start + offset;
+        const item = visibleItems[offset];
         const selected = index === this.selected;
         const icon = item.enabled === false ? "○" : "●";
         const label = `${selected ? ">" : " "} ${icon} ${item.name}`;
@@ -102,12 +109,16 @@ class ResourceManagerComponent {
         lines.push(truncateToWidth(selected ? this.theme.fg("accent", label) : this.theme.fg(labelColor, label), width));
         lines.push(truncateToWidth(this.theme.fg("dim", detail), width));
       }
+
+      if (items.length > visibleItems.length) {
+        lines.push(this.theme.fg("dim", `Showing ${range.start + 1}-${range.end} of ${items.length}`));
+      }
     }
 
     lines.push("");
     lines.push(this.theme.fg("dim", "Tab switch tabs • ↑↓ navigate • Enter inspect • x enable/disable • u update • d quarantine/remove • r reload • Esc close"));
 
-    this.cacheWidth = width;
+    this.cacheKey = cacheKey;
     this.cacheLines = lines.map((line) => truncateToWidth(line, width));
     return this.cacheLines;
   }
@@ -146,13 +157,18 @@ class ResourceManagerComponent {
   }
 
   invalidate(): void {
-    this.cacheWidth = undefined;
+    this.cacheKey = undefined;
     this.cacheLines = undefined;
   }
 
   private items(): any[] {
     if (this.tab === "skills") return this.discovery.skills;
     return [...this.discovery.packages, ...this.discovery.extensions];
+  }
+
+  private maxVisibleItems(terminalRows: number): number {
+    const reservedRows = 6;
+    return Math.max(1, Math.floor((terminalRows - reservedRows) / 2));
   }
 
   private renderTabs(): string {

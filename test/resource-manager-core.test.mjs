@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import {
   buildPackageCommand,
+  calculateVisibleRange,
   discoverResources,
   getSkillUpdatePlan,
   restoreQuarantinedResource,
@@ -38,6 +39,14 @@ async function writeSkill(root, name, description = "Test skill") {
   await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`);
   return dir;
 }
+
+test("calculates a scrolling viewport that keeps the selected resource visible", () => {
+  assert.deepEqual(calculateVisibleRange(31, 0, 9), { start: 0, end: 9 });
+  assert.deepEqual(calculateVisibleRange(31, 8, 9), { start: 0, end: 9 });
+  assert.deepEqual(calculateVisibleRange(31, 9, 9), { start: 1, end: 10 });
+  assert.deepEqual(calculateVisibleRange(31, 20, 9), { start: 12, end: 21 });
+  assert.deepEqual(calculateVisibleRange(31, 30, 9), { start: 22, end: 31 });
+});
 
 test("discovers loose skills, package settings, extensions, and trusted skill metadata", async () => {
   const env = await makeEnv();
