@@ -60,13 +60,13 @@ This package may be submitted to the Pi package ecosystem later. For now, instal
 From this repo:
 
 ```bash
-pi -e ./src/index.ts
+pi -e ./extensions/resource-manager/index.ts
 ```
 
 For a one-shot startup check:
 
 ```bash
-pi -e ./src/index.ts --list-models
+pi -e ./extensions/resource-manager/index.ts --list-models
 ```
 
 To install as a package from a local checkout:
@@ -80,7 +80,7 @@ The package manifest exposes the extension through:
 ```json
 {
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./extensions/resource-manager/index.ts"]
   }
 }
 ```

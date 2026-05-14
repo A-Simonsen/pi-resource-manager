@@ -43,6 +43,15 @@ async function writeSkill(root, name, description = "Test skill") {
   return dir;
 }
 
+test("exposes a named Resource Manager extension entrypoint", async () => {
+  const pkg = JSON.parse(await readFile("package.json", "utf8"));
+
+  assert.deepEqual(pkg.pi?.extensions, ["./extensions/resource-manager/index.ts"]);
+
+  const entrypoint = await readFile("extensions/resource-manager/index.ts", "utf8");
+  assert.match(entrypoint, /src\/index/);
+});
+
 test("builds a visible detail panel with action buttons", () => {
   const resource = {
     kind: "skill",
