@@ -35,6 +35,11 @@ export default function resourceManagerExtension(pi: ExtensionAPI) {
 }
 
 async function openResourceManager(pi: ExtensionAPI, ctx: ExtensionCommandContext, startTab: Tab) {
+  if (!ctx.hasUI) {
+    ctx.ui.notify("Resource Manager requires interactive UI mode.", "error");
+    return;
+  }
+
   let tab = startTab;
 
   while (true) {
