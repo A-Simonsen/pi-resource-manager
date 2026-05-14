@@ -10,7 +10,7 @@ import {
   getSkillUpdatePlan,
   restoreQuarantinedResource,
   quarantineResource,
-} from "./resource-manager-core.js";
+} from "../src/resource-manager-core.js";
 
 async function makeEnv() {
   const root = await mkdir(join(tmpdir(), `pi-rm-${Date.now()}-${Math.random().toString(16).slice(2)}`), { recursive: true });
