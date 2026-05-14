@@ -6,9 +6,12 @@ import { test } from "node:test";
 
 import {
   buildPackageCommand,
+  buildResourceDetailPanel,
   calculateVisibleRange,
   discoverResources,
+  getDetailActionLabels,
   getSkillUpdatePlan,
+  moveDetailActionSelection,
   restoreQuarantinedResource,
   quarantineResource,
 } from "../src/resource-manager-core.js";
@@ -39,6 +42,31 @@ async function writeSkill(root, name, description = "Test skill") {
   await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`);
   return dir;
 }
+
+test("builds a visible detail panel with action buttons", () => {
+  const resource = {
+    kind: "skill",
+    name: "example-skill",
+    path: "/tmp/example-skill",
+    enabled: true,
+    trusted: true,
+    updateStatus: "trusted-lock",
+    scope: "global-agents",
+  };
+
+  assert.deepEqual(getDetailActionLabels(), ["Update", "Delete", "Read", "Locate", "Back"]);
+  assert.equal(moveDetailActionSelection(0, -1), 4);
+  assert.equal(moveDetailActionSelection(4, 1), 0);
+
+  const summary = buildResourceDetailPanel(resource, { selectedAction: 2 });
+  assert.match(summary.join("\n"), /example-skill/);
+  assert.match(summary.join("\n"), /\[ Read \]/);
+  assert.match(summary.join("\n"), /Path: \/tmp\/example-skill/);
+
+  const locate = buildResourceDetailPanel(resource, { mode: "locate" });
+  assert.match(locate.join("\n"), /Location/);
+  assert.match(locate.join("\n"), /\/tmp\/example-skill/);
+});
 
 test("calculates a scrolling viewport that keeps the selected resource visible", () => {
   assert.deepEqual(calculateVisibleRange(31, 0, 9), { start: 0, end: 9 });

@@ -5,17 +5,21 @@ import { tmpdir } from "node:os";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import {
   buildPackageCommand,
+  buildResourceDetailPanel,
   calculateVisibleRange,
   describeResource,
   discoverResources,
   getDefaultEnv,
+  getDetailActionLabels,
   getSkillUpdatePlan,
+  moveDetailActionSelection,
   quarantineResource,
   restoreQuarantinedResource,
 } from "./resource-manager-core.js";
 
 type Tab = "extensions" | "skills";
 type ManagerAction = "inspect" | "toggle" | "update" | "delete" | "reload" | "close";
+type DetailMode = "summary" | "read" | "locate";
 type ManagerResult = { action: ManagerAction; tab: Tab; resource?: any };
 
 export default function resourceManagerExtension(pi: ExtensionAPI) {
@@ -68,6 +72,9 @@ async function openResourceManager(pi: ExtensionAPI, ctx: ExtensionCommandContex
 
 class ResourceManagerComponent {
   private selected = 0;
+  private view: "list" | "detail" = "list";
+  private detailAction = 0;
+  private detailMode: DetailMode = "summary";
   private cacheKey?: string;
   private cacheLines?: string[];
 
@@ -84,6 +91,8 @@ class ResourceManagerComponent {
 
     const items = this.items();
     if (this.selected >= items.length) this.selected = Math.max(0, items.length - 1);
+
+    if (this.view === "detail") return this.renderDetail(width, items[this.selected]);
 
     const maxVisibleItems = this.maxVisibleItems(terminalRows);
     const range = calculateVisibleRange(items.length, this.selected, maxVisibleItems);
@@ -116,7 +125,7 @@ class ResourceManagerComponent {
     }
 
     lines.push("");
-    lines.push(this.theme.fg("dim", "Tab switch tabs • ↑↓ navigate • Enter inspect • x enable/disable • u update • d quarantine/remove • r reload • Esc close"));
+    lines.push(this.theme.fg("dim", "Tab switch tabs • ↑↓ navigate • Enter details • x enable/disable • u update • d quarantine/remove • r reload • Esc close"));
 
     this.cacheKey = cacheKey;
     this.cacheLines = lines.map((line) => truncateToWidth(line, width));
@@ -127,6 +136,10 @@ class ResourceManagerComponent {
     const items = this.items();
     if (matchesKey(data, Key.escape)) {
       this.done(null);
+      return;
+    }
+    if (this.view === "detail") {
+      this.handleDetailInput(data, items[this.selected]);
       return;
     }
     if (matchesKey(data, Key.tab)) {
@@ -149,7 +162,13 @@ class ResourceManagerComponent {
     const resource = items[this.selected];
     if (!resource) return;
 
-    if (matchesKey(data, Key.enter)) this.done({ action: "inspect", tab: this.tab, resource });
+    if (matchesKey(data, Key.enter)) {
+      this.view = "detail";
+      this.detailAction = 0;
+      this.detailMode = "summary";
+      this.invalidate();
+      return;
+    }
     if (data === "x" || matchesKey(data, Key.alt("x"))) this.done({ action: "toggle", tab: this.tab, resource });
     if (data === "u" || matchesKey(data, Key.alt("u"))) this.done({ action: "update", tab: this.tab, resource });
     if (data === "d" || matchesKey(data, Key.alt("d"))) this.done({ action: "delete", tab: this.tab, resource });
@@ -159,6 +178,67 @@ class ResourceManagerComponent {
   invalidate(): void {
     this.cacheKey = undefined;
     this.cacheLines = undefined;
+  }
+
+  private renderDetail(width: number, resource: any): string[] {
+    if (!resource) {
+      this.view = "list";
+      return this.render(width);
+    }
+
+    const lines = [
+      this.theme.fg("accent", this.theme.bold("Resource Manager")),
+      this.renderTabs(),
+      "",
+      ...buildResourceDetailPanel(resource, {
+        mode: this.detailMode,
+        selectedAction: this.detailAction,
+      }),
+    ];
+
+    this.cacheKey = `${width}:detail:${this.selected}:${this.detailAction}:${this.detailMode}`;
+    this.cacheLines = lines.map((line) => truncateToWidth(line, width));
+    return this.cacheLines;
+  }
+
+  private handleDetailInput(data: string, resource: any): void {
+    if (!resource) {
+      this.view = "list";
+      this.invalidate();
+      return;
+    }
+    if (matchesKey(data, Key.left)) {
+      this.detailAction = moveDetailActionSelection(this.detailAction, -1);
+      this.invalidate();
+      return;
+    }
+    if (matchesKey(data, Key.right)) {
+      this.detailAction = moveDetailActionSelection(this.detailAction, 1);
+      this.invalidate();
+      return;
+    }
+    if (!matchesKey(data, Key.enter)) return;
+
+    const action = getDetailActionLabels()[this.detailAction]?.toLowerCase();
+    if (action === "back") {
+      this.view = "list";
+      this.detailMode = "summary";
+      this.invalidate();
+      return;
+    }
+    if (action === "read") {
+      this.detailMode = "read";
+      this.invalidate();
+      return;
+    }
+    if (action === "locate") {
+      this.detailMode = "locate";
+      this.invalidate();
+      return;
+    }
+    if (action === "update" || action === "delete") {
+      this.done({ action, tab: this.tab, resource });
+    }
   }
 
   private items(): any[] {

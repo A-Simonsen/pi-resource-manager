@@ -18,7 +18,8 @@ A standalone, theme-compatible Pi extension for managing Pi packages/extensions 
 
 - `Tab` - switch tabs
 - `Up` / `Down` - navigate
-- `Enter` - inspect
+- `Enter` - open details / activate selected detail action
+- `Left` / `Right` - choose a detail action
 - `x` - enable/disable by quarantine/restore
 - `u` - update
 - `d` - quarantine/remove
