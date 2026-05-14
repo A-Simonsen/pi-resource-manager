@@ -1,5 +1,7 @@
 node_modules/
 resource-manager-quarantine/
 .vscode/
+.env
+.env.*
 *.log
 .DS_Store
