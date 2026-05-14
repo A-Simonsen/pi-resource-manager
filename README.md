@@ -38,6 +38,22 @@ A standalone, theme-compatible Pi extension for managing Pi packages/extensions 
 - Package updates use `pi update <source>`.
 - Package removal uses `pi remove <source>`.
 
+## Install from GitHub
+
+Install the Resource Manager as a Pi package:
+
+```bash
+pi install https://github.com/A-Simonsen/pi-resource-manager
+```
+
+Update it later with:
+
+```bash
+pi update https://github.com/A-Simonsen/pi-resource-manager
+```
+
+This package may be submitted to the Pi package ecosystem later. For now, install it directly from GitHub.
+
 ## Install for development
 
 From this repo:
@@ -82,6 +98,12 @@ Run the syntax check:
 npm run check
 ```
 
-## Notes
+## Package rows vs local rows
 
-`npm:@juicesharp/rpiv-ask-user-question` is a separate Pi package. It appears as a package row rather than a local extension row when installed through Pi package management.
+Resources installed through Pi package management appear as package rows. Loose files in Pi's extension or skill directories appear as local extension or skill rows.
+
+## License and contributions
+
+This project is MIT licensed. You are free to fork, modify, and reuse it.
+
+For now, please open GitHub issues for bugs, ideas, and requests instead of sending pull requests.
