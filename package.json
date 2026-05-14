@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./extensions/resource-manager/index.ts"]
   },
   "scripts": {
     "test": "node --test test/resource-manager-core.test.mjs",

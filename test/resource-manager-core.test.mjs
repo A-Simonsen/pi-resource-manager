@@ -8,6 +8,8 @@ import {
   buildPackageCommand,
   buildResourceDetailPanel,
   calculateVisibleRange,
+  formatActionFailure,
+  formatCommandFailure,
   discoverResources,
   getDetailActionLabels,
   getSkillUpdatePlan,
@@ -42,6 +44,34 @@ async function writeSkill(root, name, description = "Test skill") {
   await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`);
   return dir;
 }
+
+test("exposes a named Resource Manager extension entrypoint", async () => {
+  const pkg = JSON.parse(await readFile("package.json", "utf8"));
+
+  assert.deepEqual(pkg.pi?.extensions, ["./extensions/resource-manager/index.ts"]);
+
+  const entrypoint = await readFile("extensions/resource-manager/index.ts", "utf8");
+  assert.match(entrypoint, /src\/index/);
+});
+
+test("formats action and command failures with useful details", () => {
+  assert.equal(
+    formatActionFailure("update", { name: "npm:example" }, new Error("network unavailable")),
+    "update failed for npm:example: network unavailable",
+  );
+  assert.equal(
+    formatActionFailure("update", undefined, "boom"),
+    "update failed: boom",
+  );
+  assert.equal(
+    formatCommandFailure("update", "npm:example", { code: 1, stdout: "", stderr: "" }),
+    "update failed for npm:example: exit code 1 with no output",
+  );
+  assert.equal(
+    formatCommandFailure("remove", "npm:example", { code: 2, stdout: "stdout text", stderr: "stderr text" }),
+    "remove failed for npm:example: stderr text",
+  );
+});
 
 test("builds a visible detail panel with action buttons", () => {
   const resource = {
