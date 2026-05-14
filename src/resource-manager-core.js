@@ -136,6 +136,22 @@ export function describeResource(resource) {
   return parts.filter(Boolean).join(" · ");
 }
 
+export function formatActionFailure(action, resource, error) {
+  const resourceName = resource?.name ? ` for ${resource.name}` : "";
+  return `${action} failed${resourceName}: ${getErrorMessage(error)}`;
+}
+
+export function formatCommandFailure(action, source, result) {
+  const output = String(result?.stderr || result?.stdout || `exit code ${result?.code ?? "unknown"} with no output`).trim();
+  return `${action} failed for ${source}: ${output}`;
+}
+
+function getErrorMessage(error) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string" && error.trim()) return error.trim();
+  return "Unknown error";
+}
+
 export function calculateVisibleRange(totalItems, selectedIndex, maxVisibleItems) {
   const total = Math.max(0, Number(totalItems) || 0);
   if (total === 0) return { start: 0, end: 0 };

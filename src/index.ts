@@ -9,6 +9,8 @@ import {
   calculateVisibleRange,
   describeResource,
   discoverResources,
+  formatActionFailure,
+  formatCommandFailure,
   getDefaultEnv,
   getDetailActionLabels,
   getSkillUpdatePlan,
@@ -65,8 +67,12 @@ async function openResourceManager(pi: ExtensionAPI, ctx: ExtensionCommandContex
     if (!result || result.action === "close") return;
     tab = result.tab;
 
-    const shouldContinue = await handleAction(pi, ctx, env, discovery, result);
-    if (!shouldContinue) return;
+    try {
+      const shouldContinue = await handleAction(pi, ctx, env, discovery, result);
+      if (!shouldContinue) return;
+    } catch (error) {
+      ctx.ui.notify(formatActionFailure(result.action, result.resource, error), "error");
+    }
   }
 }
 
@@ -338,7 +344,7 @@ async function runPackageCommand(pi: ExtensionAPI, ctx: ExtensionCommandContext,
     ctx.ui.notify(`${action} completed for ${source}.`, "success");
     return await maybeReload(ctx);
   }
-  ctx.ui.notify(`${action} failed for ${source}: ${result.stderr || result.stdout}`, "error");
+  ctx.ui.notify(formatCommandFailure(action, source, result), "error");
   return true;
 }
 
