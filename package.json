@@ -1,0 +1,13 @@
+{
+  "name": "pi-resource-manager-local",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test resource-manager-core.test.mjs",
+    "check": "node --check resource-manager-core.js"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
