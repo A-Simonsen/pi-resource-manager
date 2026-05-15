@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { getDefaultEnv } from "./resource-discovery.js";
-import { formatCommandFailure } from "./resource-manager-core.js";
+import { formatCommandFailure } from "./resource-formatting.js";
 import { describeResource } from "./resource-presentation.js";
 
 const SKILL_LOCK_FILE = ".skill-lock.json";

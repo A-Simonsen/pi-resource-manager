@@ -115,6 +115,12 @@ test("exposes a named Resource Manager extension entrypoint", async () => {
   assert.match(entrypoint, /src\/index/);
 });
 
+test("keeps resource operation modules independent from the core barrel", async () => {
+  const operationsSource = await readFile("src/resource-operations.js", "utf8");
+
+  assert.doesNotMatch(operationsSource, /from\s+["']\.\/resource-manager-core\.js["']/);
+});
+
 test("formats action and command failures with useful details", () => {
   assert.equal(
     formatActionFailure("update", { name: "npm:example" }, new Error("network unavailable")),
