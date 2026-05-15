@@ -7,8 +7,9 @@ import { formatCommandFailure } from "./resource-formatting.js";
 import { describeResource } from "./resource-presentation.js";
 
 const SKILL_LOCK_FILE = ".skill-lock.json";
+const defaultFileOps = { cp };
 
-export async function performResourceAction({ pi, ctx, env = getDefaultEnv(), discovery, result }) {
+export async function performResourceAction({ pi, ctx, env = getDefaultEnv(), discovery, result, fileOps = defaultFileOps }) {
   const resource = result?.resource;
 
   if (result?.action === "reload") {
@@ -67,7 +68,7 @@ export async function performResourceAction({ pi, ctx, env = getDefaultEnv(), di
       return await runPackageCommand(pi, ctx, "update", resource.source);
     }
     if (resource.kind === "skill") {
-      return await updateTrustedSkill(pi, ctx, env, discovery, resource);
+      return await updateTrustedSkill(pi, ctx, env, discovery, resource, fileOps);
     }
     ctx.ui.notify(`${resource.name} is local-only and cannot be updated safely in v1.`, "warning");
   }
@@ -185,7 +186,7 @@ async function runPackageCommand(pi, ctx, action, source) {
   return true;
 }
 
-async function updateTrustedSkill(pi, ctx, env, discovery, resource) {
+async function updateTrustedSkill(pi, ctx, env, discovery, resource, fileOps) {
   const plan = getSkillUpdatePlan(resource, discovery, env);
   if (!plan.updateable) {
     ctx.ui.notify(plan.reason, "warning");
@@ -224,6 +225,7 @@ async function updateTrustedSkill(pi, ctx, env, discovery, resource) {
 
   const tempRoot = await mkdtemp(join(tmpdir(), "pi-resource-manager-"));
   const cloneDir = join(tempRoot, "repo");
+  let quarantined;
   try {
     const clone = await pi.exec("git", ["clone", "--quiet", "--depth", "1", "--filter=blob:none", plan.sourceUrl, cloneDir], { timeout: 120000 });
     if (clone.code !== 0) {
@@ -233,11 +235,19 @@ async function updateTrustedSkill(pi, ctx, env, discovery, resource) {
 
     const sourceDir = join(cloneDir, plan.remoteSkillPath);
     await stat(sourceDir);
-    await quarantineResource(resource, env);
-    await cp(sourceDir, plan.localPath, { recursive: true });
+    quarantined = await quarantineResource(resource, env);
+    await fileOps.cp(sourceDir, plan.localPath, { recursive: true });
     ctx.ui.notify(`Updated ${resource.name} from trusted source.`, "success");
     return await maybeReload(ctx);
   } catch (error) {
+    if (quarantined) {
+      try {
+        await restoreQuarantinedResource({ ...resource, enabled: false, path: quarantined.path, manifest: quarantined.manifest }, env);
+      } catch (restoreError) {
+        ctx.ui.notify(`Skill update failed: ${error.message}; restore failed: ${restoreError.message}`, "error");
+        return true;
+      }
+    }
     ctx.ui.notify(`Skill update failed: ${error.message}`, "error");
     return true;
   } finally {

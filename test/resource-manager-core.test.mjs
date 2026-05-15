@@ -57,7 +57,7 @@ async function writeSkill(root, name, description = "Test skill") {
   return dir;
 }
 
-function makeOperationHarness({ confirms = [], execResults = [] } = {}) {
+function makeOperationHarness({ confirms = [], execResults = [], exec } = {}) {
   const notifications = [];
   const reloads = [];
   const execCalls = [];
@@ -67,6 +67,7 @@ function makeOperationHarness({ confirms = [], execResults = [] } = {}) {
     pi: {
       exec: async (command, args, options) => {
         execCalls.push({ command, args, options });
+        if (exec) return await exec(command, args, options);
         return execResults.shift() || { code: 0, stdout: "", stderr: "" };
       },
     },
@@ -402,6 +403,52 @@ test("discovers skills inside git repositories as git-managed trusted sources", 
   assert.equal(skill?.trusted, true);
   assert.equal(skill?.updateStatus, "git-managed");
   assert.equal(skill?.git?.remoteUrl, "https://github.com/example/git-skills.git");
+});
+
+test("restores trusted skills when copying the replacement fails", async () => {
+  const env = await makeEnv();
+  const skillPath = await writeSkill(join(env.agentsDir, "skills"), "trusted-skill", "Original skill");
+  await writeFile(join(env.agentsDir, ".skill-lock.json"), JSON.stringify({
+    skills: {
+      "trusted-skill": {
+        sourceUrl: "https://github.com/example/skills.git",
+        skillPath: "skills/trusted-skill/SKILL.md",
+      },
+    },
+  }, null, 2));
+  const discovery = await discoverResources(env);
+  const harness = makeOperationHarness({
+    confirms: [true],
+    exec: async (_command, args) => {
+      const cloneDir = args.at(-1);
+      await writeSkill(join(cloneDir, "skills"), "trusted-skill", "Replacement skill");
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  });
+
+  const keepOpen = await performResourceAction({
+    pi: harness.pi,
+    ctx: harness.ctx,
+    env,
+    discovery,
+    fileOps: {
+      cp: async () => {
+        throw new Error("disk full");
+      },
+    },
+    result: {
+      action: "update",
+      tab: "skills",
+      resource: { kind: "skill", name: "trusted-skill", path: skillPath },
+    },
+  });
+
+  assert.equal(keepOpen, true);
+  assert.match(await readFile(join(skillPath, "SKILL.md"), "utf8"), /Original skill/);
+  assert.deepEqual(harness.notifications, [{
+    message: "Skill update failed: disk full",
+    level: "error",
+  }]);
 });
 
 test("warns instead of updating skills without trusted source metadata", async () => {

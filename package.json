@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test test/resource-manager-core.test.mjs",
-    "check": "node --check src/resource-manager-core.js && node --check src/interactive-manager.js"
+    "check": "node --check src/interactive-manager.js && node --check src/resource-discovery.js && node --check src/resource-formatting.js && node --check src/resource-manager-core.js && node --check src/resource-operations.js && node --check src/resource-presentation.js"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
