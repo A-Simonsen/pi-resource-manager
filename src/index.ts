@@ -1,22 +1,15 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { cp, mkdtemp, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import {
-  buildPackageCommand,
   buildResourceDetailPanel,
   calculateVisibleRange,
   describeResource,
   discoverResources,
   formatActionFailure,
-  formatCommandFailure,
   getDefaultEnv,
   getDetailActionLabels,
-  getSkillUpdatePlan,
   moveDetailActionSelection,
-  quarantineResource,
-  restoreQuarantinedResource,
+  performResourceAction,
 } from "./resource-manager-core.js";
 
 type Tab = "extensions" | "skills";
@@ -68,7 +61,7 @@ async function openResourceManager(pi: ExtensionAPI, ctx: ExtensionCommandContex
     tab = result.tab;
 
     try {
-      const shouldContinue = await handleAction(pi, ctx, env, discovery, result);
+      const shouldContinue = await performResourceAction({ pi, ctx, env, discovery, result });
       if (!shouldContinue) return;
     } catch (error) {
       ctx.ui.notify(formatActionFailure(result.action, result.resource, error), "error");
@@ -262,157 +255,4 @@ class ResourceManagerComponent {
     const skills = this.tab === "skills" ? this.theme.fg("accent", "[ Skills ]") : this.theme.fg("muted", "  Skills  ");
     return `${extensions} ${skills}`;
   }
-}
-
-async function handleAction(pi: ExtensionAPI, ctx: ExtensionCommandContext, env: any, discovery: any, result: ManagerResult): Promise<boolean> {
-  const resource = result.resource;
-
-  if (result.action === "reload") {
-    await ctx.reload();
-    return false;
-  }
-
-  if (!resource) return true;
-
-  if (result.action === "inspect") {
-    ctx.ui.notify(`${resource.name}: ${describeResource(resource)}${resource.path ? ` (${resource.path})` : ""}`, "info");
-    return true;
-  }
-
-  if (isSelfExtension(resource)) {
-    ctx.ui.notify("Resource Manager will not quarantine itself in v1. Remove it manually if needed.", "warning");
-    return true;
-  }
-
-  if (result.action === "toggle") {
-    if (resource.kind === "package") {
-      ctx.ui.notify("Package enable/disable filters are not implemented in v1. Use update/remove actions for packages.", "warning");
-      return true;
-    }
-    if (resource.enabled === false) {
-      const ok = await ctx.ui.confirm("Restore resource?", `Restore ${resource.name} to ${resource.originalPath || resource.manifest?.originalPath}?`);
-      if (!ok) return true;
-      await restoreQuarantinedResource(resource, env);
-      ctx.ui.notify(`Restored ${resource.name}.`, "success");
-      return await maybeReload(ctx);
-    }
-    const ok = await ctx.ui.confirm("Disable resource?", `Move ${resource.name} to Resource Manager quarantine? This is reversible.`);
-    if (!ok) return true;
-    await quarantineResource(resource, env);
-    ctx.ui.notify(`Quarantined ${resource.name}.`, "success");
-    return await maybeReload(ctx);
-  }
-
-  if (result.action === "delete") {
-    if (resource.kind === "package") {
-      return await runPackageCommand(pi, ctx, "remove", resource.source);
-    }
-    if (resource.enabled === false) {
-      ctx.ui.notify(`${resource.name} is already quarantined. Permanent deletion is intentionally not implemented in v1.`, "warning");
-      return true;
-    }
-    const ok = await ctx.ui.confirm("Quarantine resource?", `Delete is quarantine-first in v1. Move ${resource.name} to quarantine?`);
-    if (!ok) return true;
-    await quarantineResource(resource, env);
-    ctx.ui.notify(`Quarantined ${resource.name}.`, "success");
-    return await maybeReload(ctx);
-  }
-
-  if (result.action === "update") {
-    if (resource.kind === "package") {
-      return await runPackageCommand(pi, ctx, "update", resource.source);
-    }
-    if (resource.kind === "skill") {
-      return await updateTrustedSkill(pi, ctx, env, discovery, resource);
-    }
-    ctx.ui.notify(`${resource.name} is local-only and cannot be updated safely in v1.`, "warning");
-  }
-
-  return true;
-}
-
-function isSelfExtension(resource: any): boolean {
-  return resource?.kind === "extension" && resource?.name === "resource-manager";
-}
-
-async function runPackageCommand(pi: ExtensionAPI, ctx: ExtensionCommandContext, action: "update" | "remove", source: string): Promise<boolean> {
-  const ok = await ctx.ui.confirm(`${action === "update" ? "Update" : "Remove"} package?`, `${action} ${source}?`);
-  if (!ok) return true;
-  const command = buildPackageCommand(action, source);
-  const result = await pi.exec(command.command, command.args, { timeout: 120000 });
-  if (result.code === 0) {
-    ctx.ui.notify(`${action} completed for ${source}.`, "success");
-    return await maybeReload(ctx);
-  }
-  ctx.ui.notify(formatCommandFailure(action, source, result), "error");
-  return true;
-}
-
-async function updateTrustedSkill(pi: ExtensionAPI, ctx: ExtensionCommandContext, env: any, discovery: any, resource: any): Promise<boolean> {
-  const plan = getSkillUpdatePlan(resource, discovery, env);
-  if (!plan.updateable) {
-    ctx.ui.notify(plan.reason, "warning");
-    return true;
-  }
-
-  if (plan.strategy === "git-pull") {
-    const ok = await ctx.ui.confirm(
-      "Update git-managed skills?",
-      `Run git pull --ff-only in ${plan.repoPath}? This may update multiple skills from ${plan.sourceUrl}.`,
-    );
-    if (!ok) return true;
-    const status = await pi.exec("git", ["-C", plan.repoPath, "status", "--short"], { timeout: 30000 });
-    if (status.code !== 0) {
-      ctx.ui.notify(`Git status failed: ${status.stderr || status.stdout}`, "error");
-      return true;
-    }
-    if (status.stdout.trim()) {
-      ctx.ui.notify(`Git repository has local changes; refusing to update ${resource.name}.`, "warning");
-      return true;
-    }
-    const pull = await pi.exec("git", ["-C", plan.repoPath, "pull", "--ff-only"], { timeout: 120000 });
-    if (pull.code === 0) {
-      ctx.ui.notify(`Updated git-managed skill repository for ${resource.name}.`, "success");
-      return await maybeReload(ctx);
-    }
-    ctx.ui.notify(`Git pull failed: ${pull.stderr || pull.stdout}`, "error");
-    return true;
-  }
-
-  const ok = await ctx.ui.confirm(
-    "Update trusted skill?",
-    `Update ${resource.name} from ${plan.sourceUrl}? The current local copy will be quarantined first; local edits are not merged.`,
-  );
-  if (!ok) return true;
-
-  const tempRoot = await mkdtemp(join(tmpdir(), "pi-resource-manager-"));
-  const cloneDir = join(tempRoot, "repo");
-  try {
-    const clone = await pi.exec("git", ["clone", "--quiet", "--depth", "1", "--filter=blob:none", plan.sourceUrl, cloneDir], { timeout: 120000 });
-    if (clone.code !== 0) {
-      ctx.ui.notify(`Clone failed: ${clone.stderr || clone.stdout}`, "error");
-      return true;
-    }
-
-    const sourceDir = join(cloneDir, plan.remoteSkillPath);
-    await stat(sourceDir);
-    await quarantineResource(resource, env);
-    await cp(sourceDir, plan.localPath, { recursive: true });
-    ctx.ui.notify(`Updated ${resource.name} from trusted source.`, "success");
-    return await maybeReload(ctx);
-  } catch (error: any) {
-    ctx.ui.notify(`Skill update failed: ${error.message}`, "error");
-    return true;
-  } finally {
-    await rm(tempRoot, { recursive: true, force: true });
-  }
-}
-
-async function maybeReload(ctx: ExtensionCommandContext): Promise<boolean> {
-  const reload = await ctx.ui.confirm("Reload Pi resources?", "Changes may not take effect until /reload. Reload now?");
-  if (reload) {
-    await ctx.reload();
-    return false;
-  }
-  return true;
 }

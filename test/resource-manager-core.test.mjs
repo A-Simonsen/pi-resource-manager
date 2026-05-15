@@ -14,6 +14,7 @@ import {
   getDetailActionLabels,
   getSkillUpdatePlan,
   moveDetailActionSelection,
+  performResourceAction,
   restoreQuarantinedResource,
   quarantineResource,
 } from "../src/resource-manager-core.js";
@@ -43,6 +44,40 @@ async function writeSkill(root, name, description = "Test skill") {
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`);
   return dir;
+}
+
+function makeOperationHarness({ confirms = [], execResults = [] } = {}) {
+  const notifications = [];
+  const reloads = [];
+  const execCalls = [];
+  const confirmCalls = [];
+
+  return {
+    pi: {
+      exec: async (command, args, options) => {
+        execCalls.push({ command, args, options });
+        return execResults.shift() || { code: 0, stdout: "", stderr: "" };
+      },
+    },
+    ctx: {
+      ui: {
+        confirm: async (title, message) => {
+          confirmCalls.push({ title, message });
+          return confirms.shift() ?? true;
+        },
+        notify: (message, level) => {
+          notifications.push({ message, level });
+        },
+      },
+      reload: async () => {
+        reloads.push(true);
+      },
+    },
+    notifications,
+    reloads,
+    execCalls,
+    confirmCalls,
+  };
 }
 
 test("exposes a named Resource Manager extension entrypoint", async () => {
@@ -184,6 +219,51 @@ test("builds safe pi package commands", () => {
   assert.throws(() => buildPackageCommand("install", "npm:@scope/example"), /Unsupported package action/);
 });
 
+test("performs package update actions through the operations seam", async () => {
+  const env = await makeEnv();
+  const harness = makeOperationHarness({ confirms: [true, true] });
+  const keepOpen = await performResourceAction({
+    pi: harness.pi,
+    ctx: harness.ctx,
+    env,
+    discovery: {},
+    result: {
+      action: "update",
+      tab: "extensions",
+      resource: { kind: "package", name: "npm:@scope/example", source: "npm:@scope/example" },
+    },
+  });
+
+  assert.equal(keepOpen, false);
+  assert.deepEqual(harness.execCalls.map((call) => [call.command, call.args]), [["pi", ["update", "npm:@scope/example"]]]);
+  assert.deepEqual(harness.notifications, [{ message: "update completed for npm:@scope/example.", level: "success" }]);
+  assert.equal(harness.reloads.length, 1);
+});
+
+test("reports package remove failures through the operations seam", async () => {
+  const env = await makeEnv();
+  const harness = makeOperationHarness({
+    confirms: [true],
+    execResults: [{ code: 2, stdout: "", stderr: "permission denied" }],
+  });
+  const keepOpen = await performResourceAction({
+    pi: harness.pi,
+    ctx: harness.ctx,
+    env,
+    discovery: {},
+    result: {
+      action: "delete",
+      tab: "extensions",
+      resource: { kind: "package", name: "npm:@scope/example", source: "npm:@scope/example" },
+    },
+  });
+
+  assert.equal(keepOpen, true);
+  assert.deepEqual(harness.execCalls.map((call) => [call.command, call.args]), [["pi", ["remove", "npm:@scope/example"]]]);
+  assert.deepEqual(harness.notifications, [{ message: "remove failed for npm:@scope/example: permission denied", level: "error" }]);
+  assert.equal(harness.reloads.length, 0);
+});
+
 test("discovers skills inside git repositories as git-managed trusted sources", async () => {
   const env = await makeEnv();
   const repo = join(env.agentsDir, "skills", "git-skills");
@@ -197,6 +277,54 @@ test("discovers skills inside git repositories as git-managed trusted sources", 
   assert.equal(skill?.trusted, true);
   assert.equal(skill?.updateStatus, "git-managed");
   assert.equal(skill?.git?.remoteUrl, "https://github.com/example/git-skills.git");
+});
+
+test("warns instead of updating skills without trusted source metadata", async () => {
+  const env = await makeEnv();
+  const skillPath = await writeSkill(join(env.agentsDir, "skills"), "unknown-skill");
+  const discovery = await discoverResources(env);
+  const harness = makeOperationHarness();
+  const keepOpen = await performResourceAction({
+    pi: harness.pi,
+    ctx: harness.ctx,
+    env,
+    discovery,
+    result: {
+      action: "update",
+      tab: "skills",
+      resource: { kind: "skill", name: "unknown-skill", path: skillPath },
+    },
+  });
+
+  assert.equal(keepOpen, true);
+  assert.deepEqual(harness.execCalls, []);
+  assert.deepEqual(harness.notifications, [{
+    message: "No trusted source metadata exists for this skill. Resource Manager will not infer update sources.",
+    level: "warning",
+  }]);
+});
+
+test("refuses to quarantine Resource Manager itself through the operations seam", async () => {
+  const env = await makeEnv();
+  const harness = makeOperationHarness();
+  const keepOpen = await performResourceAction({
+    pi: harness.pi,
+    ctx: harness.ctx,
+    env,
+    discovery: {},
+    result: {
+      action: "delete",
+      tab: "extensions",
+      resource: { kind: "extension", name: "resource-manager", path: join(env.extensionRoot, "resource-manager") },
+    },
+  });
+
+  assert.equal(keepOpen, true);
+  assert.deepEqual(harness.confirmCalls, []);
+  assert.deepEqual(harness.notifications, [{
+    message: "Resource Manager will not quarantine itself in v1. Remove it manually if needed.",
+    level: "warning",
+  }]);
 });
 
 test("creates trusted skill update plans without inferring unknown sources", async () => {
