@@ -18,6 +18,13 @@ import {
   restoreQuarantinedResource,
   quarantineResource,
 } from "../src/resource-manager-core.js";
+import {
+  buildResourceDetailPanel as buildResourceDetailPanelDirect,
+  calculateVisibleRange as calculateVisibleRangeDirect,
+  describeResource as describeResourceDirect,
+  getDetailActionLabels as getDetailActionLabelsDirect,
+  moveDetailActionSelection as moveDetailActionSelectionDirect,
+} from "../src/resource-presentation.js";
 
 async function makeEnv() {
   const root = await mkdir(join(tmpdir(), `pi-rm-${Date.now()}-${Math.random().toString(16).slice(2)}`), { recursive: true });
@@ -106,6 +113,27 @@ test("formats action and command failures with useful details", () => {
     formatCommandFailure("remove", "npm:example", { code: 2, stdout: "stdout text", stderr: "stderr text" }),
     "remove failed for npm:example: stderr text",
   );
+});
+
+test("exposes presentation helpers from the Resource Presentation Module", () => {
+  const resource = {
+    kind: "skill",
+    name: "direct-skill",
+    scope: "global-agents",
+    path: "/tmp/direct-skill",
+    trusted: true,
+    updateStatus: "trusted-lock",
+    source: "https://github.com/example/skills.git",
+  };
+
+  assert.equal(
+    describeResourceDirect(resource),
+    "skill · global-agents · trusted source · trusted-lock · https://github.com/example/skills.git",
+  );
+  assert.deepEqual(calculateVisibleRangeDirect(10, 9, 3), { start: 7, end: 10 });
+  assert.deepEqual(getDetailActionLabelsDirect(), ["Update", "Delete", "Read", "Locate", "Back"]);
+  assert.equal(moveDetailActionSelectionDirect(0, -1), 4);
+  assert.match(buildResourceDetailPanelDirect(resource, { selectedAction: 3 }).join("\n"), /direct-skill/);
 });
 
 test("builds a visible detail panel with action buttons", () => {
