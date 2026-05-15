@@ -25,6 +25,10 @@ import {
   getDetailActionLabels as getDetailActionLabelsDirect,
   moveDetailActionSelection as moveDetailActionSelectionDirect,
 } from "../src/resource-presentation.js";
+import {
+  createResourceManagerComponent,
+  openResourceManager,
+} from "../src/interactive-manager.js";
 
 async function makeEnv() {
   const root = await mkdir(join(tmpdir(), `pi-rm-${Date.now()}-${Math.random().toString(16).slice(2)}`), { recursive: true });
@@ -87,6 +91,21 @@ function makeOperationHarness({ confirms = [], execResults = [] } = {}) {
   };
 }
 
+function makeTheme() {
+  return {
+    bold: (value) => `**${value}**`,
+    fg: (_color, value) => value,
+  };
+}
+
+function makeInteractiveComponentHarness(discovery, tab = "extensions") {
+  const doneValues = [];
+  const component = createResourceManagerComponent(discovery, tab, makeTheme(), (value) => {
+    doneValues.push(value);
+  });
+  return { component, doneValues };
+}
+
 test("exposes a named Resource Manager extension entrypoint", async () => {
   const pkg = JSON.parse(await readFile("package.json", "utf8"));
 
@@ -113,6 +132,78 @@ test("formats action and command failures with useful details", () => {
     formatCommandFailure("remove", "npm:example", { code: 2, stdout: "stdout text", stderr: "stderr text" }),
     "remove failed for npm:example: stderr text",
   );
+});
+
+test("interactive manager rejects non-interactive contexts", async () => {
+  const notifications = [];
+  await openResourceManager({}, {
+    hasUI: false,
+    ui: {
+      notify: (message, level) => notifications.push({ message, level }),
+    },
+  }, "extensions");
+
+  assert.deepEqual(notifications, [{
+    message: "Resource Manager requires interactive UI mode.",
+    level: "error",
+  }]);
+});
+
+test("interactive manager component renders an empty resource list", () => {
+  const { component } = makeInteractiveComponentHarness({ packages: [], extensions: [], skills: [] });
+
+  const rendered = component.render(80, 24).join("\n");
+
+  assert.match(rendered, /Resource Manager/);
+  assert.match(rendered, /No extensions found\./);
+  assert.match(rendered, /Tab switch tabs/);
+});
+
+test("interactive manager component returns list action results", () => {
+  const resource = {
+    kind: "package",
+    name: "npm:@scope/example",
+    source: "npm:@scope/example",
+    scope: "settings",
+  };
+  const { component, doneValues } = makeInteractiveComponentHarness({
+    packages: [resource],
+    extensions: [],
+    skills: [],
+  });
+
+  component.handleInput("u");
+
+  assert.deepEqual(doneValues, [{
+    action: "update",
+    tab: "extensions",
+    resource,
+  }]);
+});
+
+test("interactive manager component returns detail action results", () => {
+  const resource = {
+    kind: "skill",
+    name: "example-skill",
+    path: "/tmp/example-skill",
+    scope: "global-agents",
+  };
+  const { component, doneValues } = makeInteractiveComponentHarness({
+    packages: [],
+    extensions: [],
+    skills: [resource],
+  }, "skills");
+
+  component.handleInput("\r");
+  const detail = component.render(80, 24).join("\n");
+  component.handleInput("\r");
+
+  assert.match(detail, /Resource details/);
+  assert.deepEqual(doneValues, [{
+    action: "update",
+    tab: "skills",
+    resource,
+  }]);
 });
 
 test("exposes presentation helpers from the Resource Presentation Module", () => {
